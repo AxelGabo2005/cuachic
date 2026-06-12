@@ -1,77 +1,75 @@
 import cv2
 import numpy as np
 
-# Inicializamos la captura de video
-cap = cv2.VideoCapture(0)  # Usa la cámara por defecto
+# --- OPTIMIZACIÓN PARA ARQUITECTURA JETSON ---
+# Utilizamos el backend V4L2 (Video4Linux2). Esto evita cuellos de botella 
+# en la CPU de la placa al capturar video desde una cámara web USB.
+cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
 
-# Comprobamos si la cámara}
-# 
-#  está abierta
+# NOTA DE HARDWARE: Si decides no usar una cámara USB y conectas una cámara 
+# CSI nativa (de cable plano), OpenCV no la detectará con el '0'.
+# Deberás comentar la línea de arriba y usar esta tubería GStreamer:
+# cap = cv2.VideoCapture("nvarguscamerasrc ! video/x-raw(memory:NVMM), width=1280, height=720, format=NV12, framerate=30/1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink", cv2.CAP_GSTREAMER)
+
 if not cap.isOpened():
-    print("Error: No se puede acceder a la cámara.")
+    print("Error: No se puede acceder a la cámara de la Jetson.")
     exit()
 
-# Establecemos la resolución de captura (por ejemplo, 1280x720)
+# Forzamos la resolución de captura
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
 
-# Inicializamos el primer frame (None al principio)
 previous_frame = None
 
-# Creamos una única ventana antes de entrar en el bucle
 cv2.namedWindow("Detección de Movimiento", cv2.WINDOW_NORMAL)
-
-# Establecemos un tamaño específico para la ventana (por ejemplo, 1600x900)
 cv2.resizeWindow("Detección de Movimiento", 600, 600)
 
 while True:
-    ret, frame = cap.read()  # Captura un frame
+    ret, frame = cap.read()
     if not ret:
         print("Error al capturar el frame.")
         break
 
-    # Convertimos el frame a escala de grises
+    # Preprocesamiento de la imagen (Escala de grises + Desenfoque)
     gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-    # Suavizamos el frame para reducir el ruido
     gray_frame = cv2.GaussianBlur(gray_frame, (21, 21), 0)
 
-    # Si no hay frame anterior, lo inicializamos
     if previous_frame is None:
         previous_frame = gray_frame
         continue
 
-    # Calculamos la diferencia entre el frame actual y el anterior
+    # Sustracción de fondo (Absdiff)
     frame_delta = cv2.absdiff(previous_frame, gray_frame)
 
-    # Umbralizamos la diferencia para detectar cambios significativos
+    # Generación de la máscara binaria
     _, threshold = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)
 
-    # Encontramos los contornos en la imagen umbralizada
+    # Extracción de contornos de la máscara
     contours, _ = cv2.findContours(threshold, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Dibujamos los contornos en el frame original
     for contour in contours:
-        if cv2.contourArea(contour) > 100:  # Ignoramos contornos pequeños
-            # Dibujamos puntos verdes en las áreas de movimiento
+        # Filtro de área mínima para evitar ruido por parpadeo de luz
+        if cv2.contourArea(contour) > 100:
+            
+            # Dibujado de la silueta del movimiento (Puntos verdes)
             for point in contour:
                 x, y = point[0]
                 cv2.circle(frame, (x, y), 2, (0, 255, 0), -1)
 
-            # Dibujamos un rectángulo azul alrededor del área de movimiento
+            # Dibujado de la caja delimitadora (Rectángulo morado/azul)
             (x, y, w, h) = cv2.boundingRect(contour)
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)  # Rectángulo azul
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (77, 0, 110), 2)
 
-    # Mostramos el frame con los puntos de movimiento y los rectángulos azules en la misma ventana
+    # Visualización
     cv2.imshow("Detección de Movimiento", frame)
 
-    # Actualizamos el frame anterior para la próxima iteración
+    # Actualización del búfer para el siguiente ciclo
     previous_frame = gray_frame
 
-    # Salir del bucle si presionamos la tecla 'q'
+    # Interrupción por teclado
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-# Liberamos la cámara y cerramos las ventanas
+# Limpieza de memoria y hardware
 cap.release()
 cv2.destroyAllWindows()
