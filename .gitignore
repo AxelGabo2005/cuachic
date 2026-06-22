@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Archivos temporales y de respaldo de SolidWorks
+~$*.sld*
+~$*.SLD*
+*.bak
+*.swj
